@@ -1,0 +1,250 @@
+---
+title: "Case 31: Summary of Data Analysis"
+subtitle: "Hypotheses H5a–H5d"
+author: "Grace Sen"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    theme: cosmo
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+output-file: index.html
+editor: visual
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Data and R Setup
+
+Place `Case 31 Data_efcu_4.sav` in the same folder as this QMD file before rendering.
+
+```{r}
+#| label: setup
+
+library(haven)
+library(dplyr)
+library(knitr)
+
+efcu <- read_sav("Case 31 Data_efcu_4.sav")
+```
+
+# Variables
+
+- **Dependent variable:** `Q37_r`, overall rating of the Credit Union's management and operations. Higher scores indicate a more favorable rating.
+- **H5a predictor:** `q31`, personnel keep members' financial information confidential.
+- **H5b predictor:** `q32`, the Credit Union promptly processes loan applications.
+- **H5c predictor:** `q33`, the Credit Union's financial services meet members' needs.
+- **H5d predictor:** `q34`, loan applications are simple and easy to complete.
+
+The analysis treats the five-point rating variables as approximately interval-level measures. Only cases with valid values on all five variables are included.
+
+```{r}
+#| label: prepare-data
+
+reg_data <- efcu |>
+  transmute(
+    operational_rating = as.numeric(Q37_r),
+    confidentiality = as.numeric(q31),
+    prompt_processing = as.numeric(q32),
+    services_meet_needs = as.numeric(q33),
+    simple_applications = as.numeric(q34)
+  ) |>
+  filter(
+    !is.na(operational_rating),
+    !is.na(confidentiality),
+    !is.na(prompt_processing),
+    !is.na(services_meet_needs),
+    !is.na(simple_applications)
+  )
+nrow(reg_data)
+```
+
+# Descriptive Results
+
+```{r}
+#| label: descriptive-results
+
+descriptive_table <- data.frame(
+  Variable = c(
+    "Overall management and operations rating (Q37r)",
+    "Confidentiality (Q31)",
+    "Prompt loan processing (Q32)",
+    "Services meet members' needs (Q33)",
+    "Simple and easy loan applications (Q34)"
+  ),
+  N = sapply(reg_data, function(x) sum(!is.na(x))),
+  Mean = sapply(reg_data, mean),
+  SD = sapply(reg_data, sd)
+)
+
+kable(
+  descriptive_table,
+  digits = c(0, 0, 3, 3),
+  caption = "Descriptive statistics for the regression variables"
+)
+```
+
+The regression uses **121 complete cases**. The overall operational rating was favorable on average ($M = 4.066$, $SD = 0.727$). Among the predictors, confidentiality received the highest average rating ($M = 3.934$), while simple and easy loan applications received the lowest ($M = 3.471$).
+
+# Multiple Regression
+
+```{r}
+#| label: regression-model
+
+h5_model <- lm(
+  operational_rating ~ confidentiality + prompt_processing +
+    services_meet_needs + simple_applications,
+  data = reg_data
+)
+
+summary(h5_model)
+```
+
+## Regression Coefficients
+
+```{r}
+#| label: regression-table
+
+coef_matrix <- summary(h5_model)$coefficients
+confidence_intervals <- confint(h5_model)
+
+regression_table <- data.frame(
+  Predictor = c(
+    "Intercept",
+    "Confidentiality (H5a)",
+    "Prompt loan processing (H5b)",
+    "Services meet members' needs (H5c)",
+    "Simple and easy applications (H5d)"
+  ),
+  B = coef_matrix[, "Estimate"],
+  SE = coef_matrix[, "Std. Error"],
+  t = coef_matrix[, "t value"],
+  p = ifelse(
+    coef_matrix[, "Pr(>|t|)"] < .001,
+    "< .001",
+    sprintf("%.3f", coef_matrix[, "Pr(>|t|)"])
+  ),
+  CI_Lower = confidence_intervals[, 1],
+  CI_Upper = confidence_intervals[, 2]
+)
+
+kable(
+  regression_table,
+  digits = c(0, 3, 3, 3, 0, 3, 3),
+  align = c("l", "r", "r", "r", "r", "r", "r"),
+  caption = "Multiple regression predicting the overall operational rating"
+)
+```
+
+The overall regression model was statistically significant, $F(4,116) = 12.46$, $p < .001$. The model explained **30.1%** of the variation in the overall operational rating ($R^2 = .301$, adjusted $R^2 = .276$).
+
+## H5a: Confidentiality
+
+Confidentiality was a significant positive predictor, $B = 0.188$, $SE = 0.089$, $t = 2.12$, $p = .036$, 95% CI $[0.012, 0.365]$. Holding the other predictors constant, a one-point increase in the confidentiality rating was associated with a 0.188-point increase in the overall operational rating. **H5a was supported.**
+
+## H5b: Prompt Loan Processing
+
+Prompt loan processing was a significant positive predictor, $B = 0.308$, $SE = 0.083$, $t = 3.71$, $p < .001$, 95% CI $[0.143, 0.472]$. It had the largest positive coefficient in the model. **H5b was supported.**
+
+## H5c: Services Meet Members' Needs
+
+The belief that financial services meet members' needs was a significant positive predictor, $B = 0.294$, $SE = 0.087$, $t = 3.40$, $p < .001$, 95% CI $[0.123, 0.466]$. **H5c was supported.**
+
+## H5d: Simple and Easy Applications
+
+The simplicity of loan applications was not a significant predictor, $B = -0.068$, $SE = 0.079$, $t = -0.86$, $p = .390$, 95% CI $[-0.225, 0.089]$. The confidence interval includes zero, so the expected positive relationship was not supported. **H5d was not supported.**
+
+# Regression Diagnostics
+
+```{r}
+#| label: regression-diagnostics
+
+model_residuals <- residuals(h5_model)
+
+# Durbin-Watson statistic; a value near 2 supports residual independence
+durbin_watson <- sum(diff(model_residuals)^2) /
+  sum(model_residuals^2)
+
+# Breusch-Pagan test computed from an auxiliary regression
+bp_auxiliary <- lm(
+  I(model_residuals^2) ~ confidentiality + prompt_processing +
+    services_meet_needs + simple_applications,
+  data = reg_data
+)
+bp_statistic <- nrow(reg_data) * summary(bp_auxiliary)$r.squared
+bp_df <- 4
+bp_p_value <- pchisq(bp_statistic, df = bp_df, lower.tail = FALSE)
+
+# Variance inflation factors
+predictor_names <- c(
+  "confidentiality",
+  "prompt_processing",
+  "services_meet_needs",
+  "simple_applications"
+)
+
+vif_values <- sapply(predictor_names, function(target) {
+  other_predictors <- setdiff(predictor_names, target)
+  auxiliary_formula <- reformulate(other_predictors, response = target)
+  auxiliary_model <- lm(auxiliary_formula, data = reg_data)
+  1 / (1 - summary(auxiliary_model)$r.squared)
+})
+
+diagnostic_table <- data.frame(
+  Check = c(
+    "Durbin-Watson statistic",
+    "Breusch-Pagan statistic",
+    "Breusch-Pagan p-value",
+    "Maximum VIF",
+    "Maximum Cook's distance"
+  ),
+  Value = c(
+    durbin_watson,
+    bp_statistic,
+    bp_p_value,
+    max(vif_values),
+    max(cooks.distance(h5_model))
+  )
+)
+
+kable(
+  diagnostic_table,
+  digits = 3,
+  caption = "Regression diagnostic statistics"
+)
+
+shapiro.test(model_residuals)
+vif_values
+```
+
+The Durbin-Watson statistic was **2.228**, which is close to 2 and supports residual independence. The Breusch-Pagan test was not significant, $\chi^2(4) = 4.59$, $p = .332$, so there was no evidence of unequal residual variance. All VIF values were below 1.40, indicating no multicollinearity concern. No Cook's distance exceeded 1, although potentially influential cases should still be reviewed.
+
+The Shapiro-Wilk test was significant, $W = .954$, $p < .001$, indicating that the residuals were not perfectly normal. Therefore, the significance tests should be interpreted with some caution. The sample size was 121, and the other diagnostics did not identify major violations.
+
+```{r}
+#| label: diagnostic-plots
+#| fig-cap: "Residual and influence diagnostics"
+#| fig-show: hold
+#| out-width: "32%"
+
+plot(h5_model, which = 1)
+plot(h5_model, which = 2)
+plot(h5_model, which = 4)
+```
+
+# Overall Conclusion
+
+The four-predictor model was significant and explained about 30% of the variation in the overall operational rating. Confidentiality, prompt loan processing, and services that meet members' needs each made a significant positive contribution. Application simplicity did not make a statistically significant contribution after the other perceptions were controlled.
+
+Therefore, **H5a, H5b, and H5c were supported, while H5d was not supported**. Because the data are cross-sectional survey responses, these results show statistical associations and do not establish causation.
+
+# Appendix
+
+- [GitHub Repository](https://github.com/gracesen/IBM-6500-Case31-H5a-H5d)
+- [GitHub Pages Report](https://gracesen.github.io/IBM-6500-Case31-H5a-H5d/)
